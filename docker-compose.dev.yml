@@ -1,0 +1,193 @@
+
+services:
+  # MongoDB for Rocket.Chat
+  mongodb:
+    image: mongo:5.0
+    platform: linux/arm64/v8
+    container_name: translator-mongodb-dev
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: rocketchat
+      MONGO_INITDB_ROOT_PASSWORD: rocketchat
+      MONGO_INITDB_DATABASE: rocketchat
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # Rocket.Chat Server
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    container_name: translator-rocketchat-dev
+    restart: unless-stopped
+    volumes:
+      - ./plugin/dist:/app/uploads
+    environment:
+      MONGO_URL: mongodb://rocketchat:rocketchat@mongodb:27017/rocketchat?replicaSet=rs0&authSource=rocketchat
+      MONGO_OPLOG_URL: mongodb://rocketchat:rocketchat@mongodb:27017/local?replicaSet=rs0&authSource=rocketchat
+      ROOT_URL: http://192.168.110.199:3013
+      PORT: 3000
+      DEPLOY_METHOD: docker
+      DEPLOY_PLATFORM: linux
+      REG_TOKEN: ${REG_TOKEN}
+      ADMIN_USERNAME: admin
+      ADMIN_PASS: admin123
+      ADMIN_EMAIL: admin@paysera.tech
+      OVERWRITE_SETTING_Show_Setup_Wizard: completed
+      OVERWRITE_SETTING_SMTP_Host: ""
+      Accounts_UseDNSDomainCheck: false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "3013:3000"  # Using port 3013 for Rocket.Chat (3000 is taken by dokploy)
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.rocketchat-dev.rule: Host(`translate-chat-dev.paysera.tech`) || Host(`192.168.110.199`)
+      traefik.http.routers.rocketchat-dev.tls: "false"
+      traefik.http.routers.rocketchat-dev.entrypoints: http
+      traefik.http.services.rocketchat-dev.loadbalancer.server.port: "3000"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # Translation API Service
+  translator-api:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: translator-api-dev
+    restart: unless-stopped
+    ports:
+      - "3012:3001"  # Using registered port 3012
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: translator
+      DB_USER: translator
+      DB_PASSWORD: translator123
+
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+
+      # Rocket.Chat Configuration
+      ROCKETCHAT_URL: http://rocketchat:3000
+      ROCKETCHAT_ADMIN_USER: admin
+      ROCKETCHAT_ADMIN_PASS: admin123
+
+      # Security
+      JWT_SECRET: dev-secret-key-change-in-production
+      JWT_EXPIRY: 24h
+      ENCRYPTION_KEY: 32-character-hex-encryption-key-dev
+      INTERNAL_SECRET: internal-api-secret-dev
+
+      # CORS Configuration - with local network access
+      ALLOWED_ORIGINS: http://192.168.110.199:3013,http://192.168.110.199:3012,http://localhost:3012,http://localhost:3013
+
+      # AI Providers (will be loaded from .env)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DEEPL_API_KEY: ${DEEPL_API_KEY}
+      GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+
+      # Logging
+      LOG_LEVEL: debug
+      LOG_TO_CONSOLE: "true"
+
+      # Rate Limiting
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX_REQUESTS: 100
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - ./api/logs:/app/logs
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.api-dev.rule: Host(`translate-api-dev.paysera.tech`) || Host(`192.168.110.199`)
+      traefik.http.routers.api-dev.tls: "false"
+      traefik.http.routers.api-dev.entrypoints: http
+      traefik.http.services.api-dev.loadbalancer.server.port: "3001"
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: translator-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: translator
+      POSTGRES_USER: translator
+      POSTGRES_PASSWORD: translator123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./api/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5434:5432"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U translator -d translator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: translator-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6381:6379"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mongodb_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  translator_network:
+    driver: bridge

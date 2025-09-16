@@ -1,0 +1,45 @@
+{
+  "id": "e0eb49ac-ee9a-4c56-bc49-19564073cfc0",
+  "version": "1.0.0",
+  "requiredApiVersion": "^1.43.0",
+  "iconFile": "icon.png",
+  "author": {
+    "name": "Kostas Noreika",
+    "homepage": "https://translator.noreika.lt",
+    "support": "support@noreika.lt"
+  },
+  "name": "Universal Translator Pro",
+  "nameSlug": "universal-translator-pro",
+  "classFile": "UniversalTranslatorApp.ts",
+  "description": "Enable seamless multilingual communication where everyone writes in their native language and reads in their preferred language",
+  "implements": [],
+  "permissions": [
+    {
+      "name": "message.read"
+    },
+    {
+      "name": "message.write"
+    },
+    {
+      "name": "room.read"
+    },
+    {
+      "name": "user.read"
+    },
+    {
+      "name": "setting.read"
+    },
+    {
+      "name": "setting.write"
+    },
+    {
+      "name": "api"
+    },
+    {
+      "name": "persistence"
+    },
+    {
+      "name": "ui.interact"
+    }
+  ]
+}

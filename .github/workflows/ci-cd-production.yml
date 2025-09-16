@@ -1,0 +1,430 @@
+name: Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      force_deploy:
+        description: 'Force deployment even if tests fail'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_API: ${{ github.repository }}/api
+  IMAGE_NAME_PLUGIN: ${{ github.repository }}/plugin
+  NODE_VERSION: '20'
+  
+jobs:
+  # =============================================================================
+  # CODE QUALITY AND TESTING
+  # =============================================================================
+  code-quality:
+    name: Code Quality & Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: translator_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for SonarQube
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd api && npm ci
+        cd ../plugin && npm ci
+        
+    - name: Type checking
+      run: |
+        npm run typecheck
+        
+    - name: Linting
+      run: |
+        npm run lint
+        
+    - name: Run tests
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://test:test@localhost:5432/translator_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret-for-ci
+        API_KEY: test-api-key-for-ci
+        ENCRYPTION_KEY: test-encryption-key-for-ci
+      run: |
+        npm run test -- --coverage --watchAll=false
+        
+    - name: Upload test coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        directory: ./coverage/
+        flags: unittests
+        name: codecov-umbrella
+        
+    - name: SonarQube Scan
+      uses: sonarqube-quality-gate-action@master
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        scanMetadataReportFile: target/sonar/report-task.txt
+        
+    - name: Security audit
+      run: |
+        npm audit --audit-level moderate
+        cd api && npm audit --audit-level moderate
+        cd ../plugin && npm audit --audit-level moderate
+        
+  # =============================================================================
+  # BUILD AND PUSH IMAGES
+  # =============================================================================
+  build-images:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: code-quality
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 30
+    
+    outputs:
+      api-image: ${{ steps.image-tags.outputs.api-image }}
+      plugin-image: ${{ steps.image-tags.outputs.plugin-image }}
+      version: ${{ steps.version.outputs.version }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract version info
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="latest"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "BUILD_VERSION=$VERSION" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+        echo "BUILD_COMMIT=${{ github.sha }}" >> $GITHUB_ENV
+        
+    - name: Generate image tags
+      id: image-tags
+      run: |
+        API_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}"
+        PLUGIN_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PLUGIN }}"
+        
+        echo "api-image=${API_IMAGE}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+        echo "plugin-image=${PLUGIN_IMAGE}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+        
+    - name: Build and push API image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./api
+        file: ./api/Dockerfile.prod
+        push: true
+        tags: |
+          ${{ steps.image-tags.outputs.api-image }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:latest
+        build-args: |
+          BUILD_VERSION=${{ env.BUILD_VERSION }}
+          BUILD_DATE=${{ env.BUILD_DATE }}
+          BUILD_COMMIT=${{ env.BUILD_COMMIT }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        
+    - name: Build and push Plugin image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./plugin
+        file: ./plugin/Dockerfile.prod
+        push: true
+        tags: |
+          ${{ steps.image-tags.outputs.plugin-image }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PLUGIN }}:latest
+        build-args: |
+          BUILD_VERSION=${{ env.BUILD_VERSION }}
+          BUILD_DATE=${{ env.BUILD_DATE }}
+          BUILD_COMMIT=${{ env.BUILD_COMMIT }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ steps.image-tags.outputs.api-image }}
+        format: spdx-json
+        output-file: api-sbom.spdx.json
+        
+    - name: Scan images for vulnerabilities
+      uses: anchore/grype-action@v0
+      with:
+        image: ${{ steps.image-tags.outputs.api-image }}
+        fail-build: true
+        severity-cutoff: high
+        
+  # =============================================================================
+  # DEPLOY TO STAGING
+  # =============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-east-1 --name staging-cluster
+        
+    - name: Deploy to staging
+      run: |
+        cd k8s/overlays/staging
+        kustomize edit set image universal-translator/api=${{ needs.build-images.outputs.api-image }}
+        kustomize edit set image universal-translator/plugin=${{ needs.build-images.outputs.plugin-image }}
+        kubectl apply -k .
+        
+    - name: Wait for deployment
+      run: |
+        kubectl rollout status deployment/universal-translator-api -n universal-translator-staging --timeout=600s
+        
+    - name: Run smoke tests
+      run: |
+        ./scripts/smoke-tests.sh staging
+        
+  # =============================================================================
+  # DEPLOY TO PRODUCTION
+  # =============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production')
+    environment: production
+    timeout-minutes: 20
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-east-1 --name production-cluster
+        
+    - name: Pre-deployment backup
+      run: |
+        ./scripts/backup.sh production
+        
+    - name: Deploy to production
+      run: |
+        cd k8s/overlays/production
+        kustomize edit set image universal-translator/api=${{ needs.build-images.outputs.api-image }}
+        kustomize edit set image universal-translator/plugin=${{ needs.build-images.outputs.plugin-image }}
+        kubectl apply -k .
+        
+    - name: Wait for deployment
+      run: |
+        kubectl rollout status deployment/universal-translator-api -n universal-translator-prod --timeout=900s
+        
+    - name: Run health checks
+      run: |
+        ./scripts/health-check.sh production
+        
+    - name: Run production tests
+      run: |
+        ./scripts/production-tests.sh
+        
+    - name: Notify deployment success
+      uses: 8398a7/action-slack@v3
+      if: success()
+      with:
+        status: success
+        text: |
+          :rocket: Production deployment successful!
+          Version: ${{ needs.build-images.outputs.version }}
+          Commit: ${{ github.sha }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        
+  # =============================================================================
+  # ROLLBACK ON FAILURE
+  # =============================================================================
+  rollback-production:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure() && needs.deploy-production.result == 'failure'
+    environment: production
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-east-1 --name production-cluster
+        
+    - name: Rollback deployment
+      run: |
+        ./scripts/rollback.sh production
+        
+    - name: Notify rollback
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: |
+          :warning: Production deployment failed and was rolled back!
+          Version: ${{ needs.build-images.outputs.version }}
+          Commit: ${{ github.sha }}
+          Please investigate and fix the issues.
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        
+  # =============================================================================
+  # CLEANUP AND SECURITY
+  # =============================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: always()
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ needs.build-images.outputs.api-image }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-production, security-scan]
+    if: always()
+    timeout-minutes: 5
+    
+    steps:
+    - name: Cleanup old images
+      run: |
+        echo "Cleaning up old container images..."
+        # Add logic to cleanup old images from registry
+        
+    - name: Update deployment status
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: context.payload.deployment.id,
+            state: 'success',
+            environment_url: 'https://translator.yourdomain.com',
+            description: 'Production deployment completed successfully'
+          });

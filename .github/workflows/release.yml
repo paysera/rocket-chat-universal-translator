@@ -1,0 +1,360 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.2.3)'
+        required: true
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Pre-release?'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
+          echo "✅ Version format is valid: $VERSION"
+
+      - name: Check if version already exists
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if git tag | grep -q "^v$VERSION$"; then
+            echo "❌ Version v$VERSION already exists!"
+            exit 1
+          fi
+          echo "✅ Version v$VERSION is available"
+
+      - name: Run tests before release
+        run: |
+          echo "🧪 Running full test suite before release..."
+          npm run lint
+          npm run typecheck
+          npm test
+
+      - name: Update version in package.json
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "📝 Updating version to $VERSION"
+
+          # Update root package.json
+          npm version $VERSION --no-git-tag-version
+
+          # Update workspace package.json files
+          if [ -d "api" ] && [ -f "api/package.json" ]; then
+            cd api
+            npm version $VERSION --no-git-tag-version
+            cd ..
+          fi
+
+          if [ -d "plugin" ] && [ -f "plugin/package.json" ]; then
+            cd plugin
+            npm version $VERSION --no-git-tag-version
+            cd ..
+          fi
+
+          if [ -d "shared" ] && [ -f "shared/package.json" ]; then
+            cd shared
+            npm version $VERSION --no-git-tag-version
+            cd ..
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "📝 Generating changelog for v$VERSION..."
+
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "📋 First release - generating full changelog"
+            CHANGELOG=$(git log --pretty=format:"* %s (%h)" --reverse)
+          else
+            echo "📋 Generating changelog since $LATEST_TAG"
+            CHANGELOG=$(git log $LATEST_TAG..HEAD --pretty=format:"* %s (%h)" --reverse)
+          fi
+
+          # Create changelog file
+          cat > RELEASE_CHANGELOG.md << EOF
+          # Release v$VERSION
+
+          ## What's Changed
+
+          $CHANGELOG
+
+          ## Docker Images
+          - API: \`ghcr.io/${{ github.repository }}:v$VERSION-api\`
+          - Plugin: \`ghcr.io/${{ github.repository }}:v$VERSION-plugin\`
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/$LATEST_TAG...v$VERSION
+          EOF
+
+          # Save changelog for later steps
+          echo "CHANGELOG_FILE=RELEASE_CHANGELOG.md" >> $GITHUB_ENV
+
+      - name: Update project documentation
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+
+          # Update version in README if it exists
+          if [ -f "README.md" ]; then
+            sed -i.bak "s/Version: [0-9]*\.[0-9]*\.[0-9]*/Version: $VERSION/g" README.md
+            rm -f README.md.bak
+          fi
+
+          # Update version in marketplace.json if it exists
+          if [ -f "marketplace.json" ]; then
+            sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/g" marketplace.json
+            rm -f marketplace.json.bak
+          fi
+
+      - name: Commit version changes
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+
+          git add .
+          git commit -m "chore: release v$VERSION
+
+          - Update version in package.json files
+          - Update documentation
+          - Prepare for release
+
+          🤖 Generated with GitHub Actions"
+
+      - name: Create and push tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin main
+          git push origin "v$VERSION"
+
+      - name: Build release artifacts
+        run: |
+          echo "🏗️ Building release artifacts..."
+
+          # Build all packages
+          npm run build
+
+          # Create release archive
+          VERSION="${{ github.event.inputs.version }}"
+          mkdir -p release-artifacts
+
+          # Package plugin if it exists
+          if [ -d "plugin/dist" ]; then
+            cd plugin
+            tar -czf "../release-artifacts/universal-translator-plugin-v$VERSION.tar.gz" dist/ package.json README.md
+            cd ..
+          fi
+
+          # Package API if it exists
+          if [ -d "api/dist" ]; then
+            cd api
+            tar -czf "../release-artifacts/universal-translator-api-v$VERSION.tar.gz" dist/ package.json
+            cd ..
+          fi
+
+          # Create complete package
+          tar -czf "release-artifacts/universal-translator-complete-v$VERSION.tar.gz" \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='release-artifacts' \
+            .
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          release_name: Universal Translator v${{ github.event.inputs.version }}
+          body_path: ${{ env.CHANGELOG_FILE }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+
+      - name: Upload release artifacts
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          RELEASE_ID="${{ steps.create_release.outputs.id }}"
+
+          for file in release-artifacts/*.tar.gz; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "📦 Uploading $filename..."
+
+              curl -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                   -H "Content-Type: application/gzip" \
+                   --data-binary @"$file" \
+                   "https://uploads.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?name=$filename"
+            fi
+          done
+
+      - name: Trigger production deployment
+        if: success() && !github.event.inputs.prerelease
+        uses: actions/github-script@v6
+        with:
+          script: |
+            console.log('🚀 Triggering production deployment...');
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'cd.yml',
+              ref: 'main',
+              inputs: {
+                environment: 'production',
+                version: 'v${{ github.event.inputs.version }}'
+              }
+            });
+
+            console.log('✅ Production deployment triggered');
+
+      - name: Create pull request for develop branch
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const version = '${{ github.event.inputs.version }}';
+
+            // Check if develop branch exists
+            try {
+              await github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: 'develop'
+              });
+
+              // Create PR to merge main into develop
+              const pr = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `chore: merge release v${version} to develop`,
+                head: 'main',
+                base: 'develop',
+                body: `## 🚀 Release v${version} - Merge to Develop
+
+                This PR merges the release changes from main branch to develop branch.
+
+                ### Changes:
+                - Version bump to v${version}
+                - Release tag created
+                - Documentation updated
+
+                ### Next Steps:
+                - This PR should be merged automatically
+                - Continue development on develop branch
+                - Next release will be prepared from develop
+
+                🤖 Auto-generated by release workflow`
+              });
+
+              console.log(\`PR created: \${pr.data.html_url}\`);
+            } catch (error) {
+              console.log('No develop branch found or error creating PR:', error.message);
+            }
+
+      - name: Notify team
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            ${{ job.status == 'success' && '🎉' || '❌' }} Release v${{ github.event.inputs.version }} ${{ job.status }}!
+
+            **Version**: v${{ github.event.inputs.version }}
+            **Type**: ${{ github.event.inputs.release_type }}
+            **Prerelease**: ${{ github.event.inputs.prerelease }}
+            **Released by**: ${{ github.actor }}
+
+            ${{ job.status == 'success' && '✅ Production deployment has been triggered' || '❌ Please check the workflow logs' }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Post-release cleanup
+        if: always()
+        run: |
+          # Clean up temporary files
+          rm -f RELEASE_CHANGELOG.md
+          rm -rf release-artifacts/
+
+          echo "🧹 Release workflow cleanup completed"
+
+  post-release:
+    name: Post-Release Tasks
+    needs: release
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Create next development version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "🔮 Preparing next development version after v$VERSION"
+
+          # This could be enhanced to automatically bump to next patch version
+          # and commit a development version marker
+
+      - name: Update project status
+        run: |
+          echo "📊 Updating project status after release..."
+          # This is where you might update status files, metrics, etc.
+
+      - name: Verify deployment readiness
+        run: |
+          echo "✅ Release v${{ github.event.inputs.version }} completed successfully"
+          echo "🚀 Production deployment should be starting automatically"
+          echo "📊 Monitor deployment status in the CD workflow"

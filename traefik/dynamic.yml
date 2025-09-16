@@ -1,0 +1,69 @@
+http:
+  middlewares:
+    # Security headers middleware
+    secure-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+          - POST
+          - DELETE
+          - PATCH
+        accessControlMaxAge: 100
+        addVaryHeader: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+        customResponseHeaders:
+          X-Robots-Tag: noindex
+          Server: ""
+        referrerPolicy: same-origin
+        permissionsPolicy: "geolocation=(), microphone=(), camera=()"
+
+    # Rate limiting middleware
+    api-rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+
+    # API specific middleware chain
+    api-chain:
+      chain:
+        middlewares:
+          - secure-headers
+          - api-rate-limit
+
+    # Rocket.Chat specific middleware
+    rocketchat-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+          X-Real-IP: ""
+        customResponseHeaders:
+          X-Frame-Options: SAMEORIGIN
+        accessControlAllowOrigin: "https://translate-chat.paysera.tech"
+
+tls:
+  options:
+    default:
+      sslProtocols:
+        - "TLSv1.2"
+        - "TLSv1.3"
+      cipherSuites:
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"
+      minVersion: "VersionTLS12"
+
+# Enable API dashboard (only if TRAEFIK_API_DASHBOARD=true)
+api:
+  dashboard: true
+  insecure: false

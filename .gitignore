@@ -1,0 +1,85 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+build/
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Exclude TypeScript source files from gitignore
+!**/*.ts
+!**/*.tsx
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+test-results/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Cache
+.cache/
+.npm/
+.yarn/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Rocket.Chat Apps
+plugin/*.zip
+plugin/.rc-apps/
+
+# API
+api/uploads/
+api/public/
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.cert
+
+# Backup files
+*.backup
+*.bak
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Package manager locks (keep one)
+package-lock.json
+# yarn.lock
+# pnpm-lock.yaml.claude.json

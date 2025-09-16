@@ -1,0 +1,236 @@
+groups:
+  - name: translator_critical_alerts
+    interval: 30s
+    rules:
+      # API Service Health
+      - alert: TranslatorAPIDown
+        expr: up{job="translator-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: api
+          team: devops
+        annotations:
+          summary: "Translator API is down"
+          description: "Translator API has been down for more than 1 minute. Immediate attention required."
+          runbook_url: "https://wiki.paysera.tech/translator/runbooks/api-down"
+
+      # Database Health
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+          team: devops
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL database has been unreachable for more than 1 minute."
+          runbook_url: "https://wiki.paysera.tech/translator/runbooks/postgres-down"
+
+      - alert: MongoDBDown
+        expr: up{job="mongodb"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+          team: devops
+        annotations:
+          summary: "MongoDB is down"
+          description: "MongoDB (Rocket.Chat database) has been unreachable for more than 1 minute."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: cache
+          team: devops
+        annotations:
+          summary: "Redis cache is down"
+          description: "Redis cache service has been unreachable for more than 1 minute."
+
+  - name: translator_performance_alerts
+    interval: 60s
+    rules:
+      # High Response Time
+      - alert: HighAPIResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="translator-api"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+          team: development
+        annotations:
+          summary: "High API response time detected"
+          description: "95th percentile response time is {{ $value }}s, above 2s threshold for 5 minutes."
+
+      # High Error Rate
+      - alert: HighAPIErrorRate
+        expr: rate(http_requests_total{job="translator-api",status=~"5.."}[5m]) / rate(http_requests_total{job="translator-api"}[5m]) * 100 > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: api
+          team: development
+        annotations:
+          summary: "High API error rate detected"
+          description: "API error rate is {{ $value }}%, above 5% threshold for 3 minutes."
+
+      # Rate Limiting Triggered
+      - alert: RateLimitingActive
+        expr: rate(http_requests_total{job="translator-api",status="429"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: api
+          team: development
+        annotations:
+          summary: "Rate limiting is actively blocking requests"
+          description: "Rate limiting is blocking {{ $value }} requests/second for 2 minutes."
+
+  - name: translator_resource_alerts
+    interval: 60s
+    rules:
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+          team: devops
+        annotations:
+          summary: "High memory usage detected"
+          description: "System memory usage is {{ $value }}%, above 90% threshold for 5 minutes."
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+          team: devops
+        annotations:
+          summary: "High CPU usage detected"
+          description: "System CPU usage is {{ $value }}%, above 85% threshold for 5 minutes."
+
+      # Low Disk Space
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+          team: devops
+        annotations:
+          summary: "Low disk space"
+          description: "Root filesystem has only {{ $value }}% space remaining."
+
+  - name: translator_database_alerts
+    interval: 60s
+    rules:
+      # PostgreSQL Connection Issues
+      - alert: PostgreSQLTooManyConnections
+        expr: pg_stat_database_numbackends{datname="translator"} / pg_settings_max_connections * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+          team: devops
+        annotations:
+          summary: "PostgreSQL connection pool nearly exhausted"
+          description: "PostgreSQL is using {{ $value }}% of available connections."
+
+      # PostgreSQL Slow Queries
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_database_tup_returned{datname="translator"}[5m]) / rate(pg_stat_database_tup_fetched{datname="translator"}[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: database
+          team: development
+        annotations:
+          summary: "PostgreSQL queries are running slowly"
+          description: "Query efficiency is {{ $value }}, indicating slow queries."
+
+      # Redis Memory Usage
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+          team: devops
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value }}% of allocated memory."
+
+  - name: translator_ssl_alerts
+    interval: 1440m  # Check daily
+    rules:
+      # SSL Certificate Expiry
+      - alert: SSLCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+        for: 0m
+        labels:
+          severity: warning
+          service: ssl
+          team: devops
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value }} days."
+
+      - alert: SSLCertificateExpiredOrExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+        for: 0m
+        labels:
+          severity: critical
+          service: ssl
+          team: devops
+        annotations:
+          summary: "SSL certificate expires very soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value }} days."
+
+  - name: translator_backup_alerts
+    interval: 1440m  # Check daily
+    rules:
+      # Backup Failure
+      - alert: BackupJobFailed
+        expr: time() - backup_last_success_timestamp > 86400 * 2  # 2 days
+        for: 0m
+        labels:
+          severity: critical
+          service: backup
+          team: devops
+        annotations:
+          summary: "Backup job has not succeeded recently"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago."
+
+  - name: translator_translation_alerts
+    interval: 30s
+    rules:
+      # AI Provider Issues
+      - alert: TranslationProviderDown
+        expr: translation_provider_availability < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: translation
+          team: development
+        annotations:
+          summary: "Translation provider availability is low"
+          description: "Translation provider {{ $labels.provider }} availability is {{ $value }}."
+
+      # Translation Queue Backlog
+      - alert: TranslationQueueBacklog
+        expr: translation_queue_size > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: translation
+          team: development
+        annotations:
+          summary: "Translation queue has a large backlog"
+          description: "Translation queue has {{ $value }} pending requests."

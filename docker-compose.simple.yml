@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: translator-postgres
+    environment:
+      POSTGRES_DB: translator
+      POSTGRES_USER: translator
+      POSTGRES_PASSWORD: translator123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U translator -d translator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: translator-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6381:6379"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Translation API
+  translator-api:
+    image: node:18-alpine
+    container_name: translator-api
+    working_dir: /app
+    command: npm run dev
+    volumes:
+      - ./api:/app
+      - ./shared:/shared
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: translator
+      DB_USER: translator
+      DB_PASSWORD: translator123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: development-jwt-secret
+      ENCRYPTION_KEY: development-encryption-key
+      ALLOWED_ORIGINS: http://192.168.110.199:3012,http://192.168.110.199:3013
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3012:3001"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  translator_network:
+    driver: bridge

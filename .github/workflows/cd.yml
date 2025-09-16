@@ -1,0 +1,432 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Version to deploy (optional)'
+        required: false
+
+env:
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Job 1: Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: |
+      (github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: https://translate-api-staging.domain.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup deployment tools
+        run: |
+          # Install kubectl if needed
+          if ! command -v kubectl &> /dev/null; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+          fi
+
+          # Install AWS CLI if needed
+          if ! command -v aws &> /dev/null; then
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+          fi
+
+      - name: Configure AWS credentials
+        if: env.AWS_ACCESS_KEY_ID
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Deploy to staging (AWS ECS)
+        if: env.AWS_ACCESS_KEY_ID
+        run: |
+          echo "Deploying to AWS ECS staging..."
+          if aws ecs describe-clusters --cluster-names translator-staging --region eu-west-1 &> /dev/null; then
+            aws ecs update-service \
+              --cluster translator-staging \
+              --service translator-api \
+              --force-new-deployment \
+              --region eu-west-1
+
+            echo "Waiting for deployment to stabilize..."
+            aws ecs wait services-stable \
+              --cluster translator-staging \
+              --services translator-api \
+              --region eu-west-1
+          else
+            echo "ECS cluster not found, skipping ECS deployment"
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Deploy to staging (Kubernetes)
+        if: env.KUBE_CONFIG_DATA
+        run: |
+          echo "Deploying to Kubernetes staging..."
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+          if kubectl get namespace staging &> /dev/null; then
+            kubectl set image deployment/translator-api \
+              translator-api=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-api \
+              -n staging
+            kubectl rollout status deployment/translator-api -n staging --timeout=300s
+          else
+            echo "Kubernetes namespace 'staging' not found, skipping K8s deployment"
+          fi
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+      - name: Deploy to staging (Docker Compose)
+        if: env.STAGING_SSH_HOST
+        run: |
+          echo "Deploying to Docker Compose staging..."
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.STAGING_SSH_HOST }} >> ~/.ssh/known_hosts
+
+          ssh ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }} << 'EOF'
+            cd /opt/translator-staging
+            docker-compose pull
+            docker-compose up -d
+            docker system prune -f
+          EOF
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests..."
+          sleep 30
+
+          STAGING_URL="${{ secrets.STAGING_URL || 'https://translate-api-staging.domain.com' }}"
+
+          # Basic health check
+          if curl -f "$STAGING_URL/health" &> /dev/null; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed"
+            exit 1
+          fi
+
+          # Run smoke tests if available
+          if [ -f "package.json" ] && npm run | grep -q "test:smoke"; then
+            npm run test:smoke -- --url "$STAGING_URL"
+          fi
+
+      - name: Notify team
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Staging deployment ${{ job.status }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+  # Job 2: Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: |
+      (startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment:
+      name: production
+      url: https://translate-api.domain.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup deployment tools
+        run: |
+          # Install deployment tools
+          if ! command -v kubectl &> /dev/null; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
+          fi
+
+      - name: Configure AWS credentials
+        if: env.AWS_ACCESS_KEY_ID
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Create deployment
+        uses: bobheadxi/deployments@v1
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: production
+
+      - name: Blue-Green Deployment (AWS)
+        if: env.AWS_ACCESS_KEY_ID
+        run: |
+          echo "🚀 Starting Blue-Green deployment..."
+
+          # Check if blue-green script exists
+          if [ -f "./scripts/ci-cd/deploy-blue-green.sh" ]; then
+            chmod +x ./scripts/ci-cd/deploy-blue-green.sh
+            ./scripts/ci-cd/deploy-blue-green.sh green
+          else
+            echo "Blue-green script not found, using standard deployment"
+            aws ecs update-service \
+              --cluster translator-prod \
+              --service translator-api \
+              --force-new-deployment \
+              --region eu-west-1
+
+            aws ecs wait services-stable \
+              --cluster translator-prod \
+              --services translator-api \
+              --region eu-west-1
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Kubernetes Rolling Deployment
+        if: env.KUBE_CONFIG_DATA
+        run: |
+          echo "🚀 Starting Kubernetes rolling deployment..."
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+          # Rolling update
+          kubectl set image deployment/translator-api \
+            translator-api=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-api \
+            -n production
+
+          # Wait for rollout
+          kubectl rollout status deployment/translator-api -n production --timeout=600s
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+      - name: Run health checks
+        run: |
+          echo "🏥 Running production health checks..."
+          sleep 30
+
+          PROD_URL="${{ secrets.PRODUCTION_URL || 'https://translate-api.domain.com' }}"
+
+          # Run health check script if available
+          if [ -f "./scripts/ci-cd/health-check.sh" ]; then
+            chmod +x ./scripts/ci-cd/health-check.sh
+            ./scripts/ci-cd/health-check.sh "$PROD_URL"
+          else
+            # Basic health check
+            for i in {1..10}; do
+              if curl -f "$PROD_URL/health" &> /dev/null; then
+                echo "✅ Health check passed"
+                break
+              else
+                echo "Attempt $i/10: Health check failed"
+                if [ $i -eq 10 ]; then
+                  exit 1
+                fi
+                sleep 10
+              fi
+            done
+          fi
+
+      - name: Run production smoke tests
+        run: |
+          echo "🧪 Running production smoke tests..."
+          PROD_URL="${{ secrets.PRODUCTION_URL || 'https://translate-api.domain.com' }}"
+
+          if [ -f "package.json" ] && npm run | grep -q "test:smoke"; then
+            npm run test:smoke -- --url "$PROD_URL"
+          else
+            echo "No smoke tests found, skipping"
+          fi
+
+      - name: Update deployment status
+        uses: bobheadxi/deployments@v1
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: production
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+
+      - name: Create release notes
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 Production Release ${{ github.ref_name }}
+
+            **Deployment Status**: ✅ Successful
+            **Deployed By**: ${{ github.actor }}
+            **Commit**: ${{ github.sha }}
+
+            ## 📦 Docker Images
+            - API: `${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-api`
+            - Plugin: `${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-plugin`
+
+            ## 🔍 What's Changed
+            See commits since last release for detailed changes.
+
+      - name: Notify team success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            🎉 Production deployment successful!
+            Version: ${{ github.ref_name }}
+            Deployed by: ${{ github.actor }}
+            Commit: ${{ github.sha }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Notify team failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: |
+            🚨 Production deployment failed!
+            Version: ${{ github.ref_name }}
+            Failed step: Review GitHub Actions logs
+            Deployed by: ${{ github.actor }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_EMERGENCY || secrets.SLACK_WEBHOOK }}
+
+  # Job 3: Automatic Rollback
+  rollback:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    if: failure() && needs.deploy-production.result == 'failure'
+    needs: deploy-production
+    environment:
+      name: production-rollback
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        if: env.AWS_ACCESS_KEY_ID
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Rollback AWS ECS deployment
+        if: env.AWS_ACCESS_KEY_ID
+        run: |
+          echo "🔄 Rolling back ECS deployment..."
+
+          # Get the previous task definition revision
+          CURRENT_REVISION=$(aws ecs describe-services \
+            --cluster translator-prod \
+            --services translator-api \
+            --query 'services[0].taskDefinition' \
+            --output text \
+            --region eu-west-1 | grep -o '[0-9]*$')
+
+          PREVIOUS_REVISION=$((CURRENT_REVISION - 1))
+          TASK_FAMILY=$(aws ecs describe-services \
+            --cluster translator-prod \
+            --services translator-api \
+            --query 'services[0].taskDefinition' \
+            --output text \
+            --region eu-west-1 | sed 's/:[0-9]*$//')
+
+          PREVIOUS_TASK="${TASK_FAMILY}:${PREVIOUS_REVISION}"
+
+          echo "Rolling back to: $PREVIOUS_TASK"
+
+          aws ecs update-service \
+            --cluster translator-prod \
+            --service translator-api \
+            --task-definition $PREVIOUS_TASK \
+            --region eu-west-1
+
+          aws ecs wait services-stable \
+            --cluster translator-prod \
+            --services translator-api \
+            --region eu-west-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Rollback Kubernetes deployment
+        if: env.KUBE_CONFIG_DATA
+        run: |
+          echo "🔄 Rolling back Kubernetes deployment..."
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+          kubectl rollout undo deployment/translator-api -n production
+          kubectl rollout status deployment/translator-api -n production --timeout=300s
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+      - name: Verify rollback
+        run: |
+          echo "✅ Verifying rollback..."
+          sleep 30
+
+          PROD_URL="${{ secrets.PRODUCTION_URL || 'https://translate-api.domain.com' }}"
+
+          if curl -f "$PROD_URL/health" &> /dev/null; then
+            echo "✅ Rollback successful - service is healthy"
+          else
+            echo "❌ Rollback verification failed"
+            exit 1
+          fi
+
+      - name: Notify emergency
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            🚨 EMERGENCY: Production rollback ${{ job.status }}!
+            Original deployment failed, automatic rollback initiated
+            Version: ${{ github.ref_name }}
+            Status: ${{ job.status }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_EMERGENCY || secrets.SLACK_WEBHOOK }}

@@ -1,0 +1,38 @@
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: translator-postgres-test
+    environment:
+      POSTGRES_DB: translator_test
+      POSTGRES_USER: translator
+      POSTGRES_PASSWORD: translator123
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U translator -d translator_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: translator-redis-test
+    ports:
+      - "6381:6379"
+    tmpfs:
+      - /data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  test-network:
+    driver: bridge

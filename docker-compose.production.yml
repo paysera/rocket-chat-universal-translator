@@ -1,0 +1,183 @@
+version: '3.8'
+
+services:
+  # MongoDB for Rocket.Chat
+  mongo:
+    image: mongo:6
+    container_name: translator-mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+      - mongo_dump:/dump
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
+      MONGO_INITDB_DATABASE: rocketchat
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - translator-network
+
+  # Rocket.Chat Server
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    container_name: translator-rocketchat
+    restart: always
+    environment:
+      MONGO_URL: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:-changeme}@mongo:27017/rocketchat?authSource=admin
+      MONGO_OPLOG_URL: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:-changeme}@mongo:27017/local?authSource=admin
+      ROOT_URL: https://translate-api.paysera.tech
+      PORT: 3000
+      DEPLOY_METHOD: docker
+      DEPLOY_PLATFORM: linux
+      ADMIN_USERNAME: ${ROCKETCHAT_ADMIN_USER:-admin}
+      ADMIN_NAME: Admin
+      ADMIN_EMAIL: ${ROCKETCHAT_ADMIN_EMAIL:-admin@paysera.tech}
+      ADMIN_PASS: ${ROCKETCHAT_ADMIN_PASS:-changeme}
+      OVERWRITE_SETTING_Show_Setup_Wizard: completed
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8015:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - translator-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rocketchat.rule=Host(`translate-chat.paysera.tech`)"
+      - "traefik.http.routers.rocketchat.entrypoints=websecure"
+      - "traefik.http.routers.rocketchat.tls=true"
+      - "traefik.http.services.rocketchat.loadbalancer.server.port=3000"
+
+  # PostgreSQL for Translation API
+  postgres:
+    image: postgres:16-alpine
+    container_name: translator-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-translator}
+      POSTGRES_USER: ${DB_USER:-translator}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./api/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-translator} -d ${DB_NAME:-translator}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - translator-network
+
+  # Redis for Caching and Rate Limiting
+  redis:
+    image: redis:7-alpine
+    container_name: translator-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - translator-network
+
+  # Translation API Service
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    container_name: translator-api
+    restart: always
+    ports:
+      - "8015:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+
+      # Database Configuration (internal Docker network)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-translator}
+      DB_USER: ${DB_USER:-translator}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+
+      # Redis Configuration (internal Docker network)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme}
+
+      # Rocket.Chat Configuration (internal Docker network)
+      ROCKETCHAT_URL: http://rocketchat:3000
+      ROCKETCHAT_ADMIN_USER: ${ROCKETCHAT_ADMIN_USER:-admin}
+      ROCKETCHAT_ADMIN_PASS: ${ROCKETCHAT_ADMIN_PASS:-changeme}
+
+      # Security
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY: ${JWT_EXPIRY:-24h}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+
+      # CORS - Production domains
+      ALLOWED_ORIGINS: https://translate-api.paysera.tech,https://translate-chat.paysera.tech
+
+      # AI Providers
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DEEPL_API_KEY: ${DEEPL_API_KEY}
+      GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_TO_CONSOLE: ${LOG_TO_CONSOLE:-true}
+
+      # Rate Limiting
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketchat:
+        condition: service_healthy
+    volumes:
+      - ./api/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - translator-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`translate-api.paysera.tech`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.services.api.loadbalancer.server.port=3001"
+
+networks:
+  translator-network:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  mongo_dump:
+  postgres_data:
+  redis_data:

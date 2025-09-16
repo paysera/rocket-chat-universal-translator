@@ -1,0 +1,212 @@
+groups:
+  # =============================================================================
+  # APPLICATION ALERTS
+  # =============================================================================
+  - name: universal-translator-api
+    rules:
+    - alert: APIHighErrorRate
+      expr: rate(http_requests_total{job="universal-translator-api",status=~"5.."}[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+        service: universal-translator-api
+      annotations:
+        summary: "High error rate detected in Universal Translator API"
+        description: "API error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+        runbook_url: "https://docs.yourdomain.com/runbooks/api-high-error-rate"
+
+    - alert: APIHighLatency
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="universal-translator-api"}[5m])) > 2
+      for: 10m
+      labels:
+        severity: warning
+        service: universal-translator-api
+      annotations:
+        summary: "High latency detected in Universal Translator API"
+        description: "API 95th percentile latency is {{ $value }}s for the last 10 minutes"
+        runbook_url: "https://docs.yourdomain.com/runbooks/api-high-latency"
+
+    - alert: APIDown
+      expr: up{job="universal-translator-api"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: universal-translator-api
+      annotations:
+        summary: "Universal Translator API is down"
+        description: "API has been down for more than 1 minute"
+        runbook_url: "https://docs.yourdomain.com/runbooks/api-down"
+
+    - alert: TranslationServiceDown
+      expr: translation_service_available{job="universal-translator-api"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        service: translation
+      annotations:
+        summary: "Translation service is unavailable"
+        description: "Translation service has been unavailable for {{ $for }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/translation-service-down"
+
+    - alert: HighTranslationQueueSize
+      expr: translation_queue_size{job="universal-translator-api"} > 1000
+      for: 5m
+      labels:
+        severity: warning
+        service: translation
+      annotations:
+        summary: "Translation queue is backing up"
+        description: "Translation queue size is {{ $value }}, indicating potential performance issues"
+        runbook_url: "https://docs.yourdomain.com/runbooks/high-queue-size"
+
+  # =============================================================================
+  # INFRASTRUCTURE ALERTS
+  # =============================================================================
+  - name: infrastructure
+    rules:
+    - alert: HighMemoryUsage
+      expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        component: infrastructure
+      annotations:
+        summary: "High memory usage detected"
+        description: "Memory usage is above 85% for {{ $for }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/high-memory-usage"
+
+    - alert: HighCPUUsage
+      expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+      for: 10m
+      labels:
+        severity: warning
+        component: infrastructure
+      annotations:
+        summary: "High CPU usage detected"
+        description: "CPU usage is above 85% for {{ $for }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/high-cpu-usage"
+
+    - alert: DiskSpaceRunningOut
+      expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+      for: 5m
+      labels:
+        severity: critical
+        component: infrastructure
+      annotations:
+        summary: "Disk space running low"
+        description: "Disk usage is above 85% on {{ $labels.device }} mounted at {{ $labels.mountpoint }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/disk-space-low"
+
+  # =============================================================================
+  # DATABASE ALERTS
+  # =============================================================================
+  - name: postgresql
+    rules:
+    - alert: PostgreSQLDown
+      expr: pg_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: postgresql
+      annotations:
+        summary: "PostgreSQL is down"
+        description: "PostgreSQL database has been down for {{ $for }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/postgresql-down"
+
+    - alert: PostgreSQLHighConnections
+      expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+      for: 5m
+      labels:
+        severity: warning
+        service: postgresql
+      annotations:
+        summary: "PostgreSQL connection usage is high"
+        description: "PostgreSQL is using {{ $value }}% of available connections"
+        runbook_url: "https://docs.yourdomain.com/runbooks/postgresql-high-connections"
+
+    - alert: PostgreSQLSlowQueries
+      expr: rate(pg_stat_database_tup_returned[5m]) / rate(pg_stat_database_tup_fetched[5m]) < 0.1
+      for: 10m
+      labels:
+        severity: warning
+        service: postgresql
+      annotations:
+        summary: "PostgreSQL has slow queries"
+        description: "Query efficiency is low: {{ $value | humanizePercentage }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/postgresql-slow-queries"
+
+  # =============================================================================
+  # REDIS ALERTS
+  # =============================================================================
+  - name: redis
+    rules:
+    - alert: RedisDown
+      expr: redis_up == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: redis
+      annotations:
+        summary: "Redis is down"
+        description: "Redis has been down for {{ $for }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/redis-down"
+
+    - alert: RedisHighMemoryUsage
+      expr: redis_memory_used_bytes / redis_config_maxmemory * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        service: redis
+      annotations:
+        summary: "Redis memory usage is high"
+        description: "Redis is using {{ $value }}% of allocated memory"
+        runbook_url: "https://docs.yourdomain.com/runbooks/redis-high-memory"
+
+    - alert: RedisSlowlog
+      expr: rate(redis_slowlog_length[5m]) > 0
+      for: 2m
+      labels:
+        severity: warning
+        service: redis
+      annotations:
+        summary: "Redis has slow queries"
+        description: "Redis slowlog is growing at {{ $value }} entries per second"
+        runbook_url: "https://docs.yourdomain.com/runbooks/redis-slow-queries"
+
+  # =============================================================================
+  # BUSINESS METRICS ALERTS
+  # =============================================================================
+  - name: business-metrics
+    rules:
+    - alert: TranslationVolumeDrop
+      expr: rate(translations_completed_total[1h]) < 0.5 * rate(translations_completed_total[24h] offset 1d)
+      for: 30m
+      labels:
+        severity: warning
+        category: business
+      annotations:
+        summary: "Translation volume has dropped significantly"
+        description: "Current translation rate is less than 50% of yesterday's rate"
+        runbook_url: "https://docs.yourdomain.com/runbooks/translation-volume-drop"
+
+    - alert: HighTranslationErrorRate
+      expr: rate(translations_failed_total[5m]) / rate(translations_total[5m]) > 0.05
+      for: 10m
+      labels:
+        severity: critical
+        category: business
+      annotations:
+        summary: "High translation error rate"
+        description: "Translation error rate is {{ $value | humanizePercentage }}"
+        runbook_url: "https://docs.yourdomain.com/runbooks/high-translation-error-rate"
+
+    - alert: ProviderAPILimitReached
+      expr: provider_api_rate_limited_total > 0
+      for: 1m
+      labels:
+        severity: warning
+        category: business
+      annotations:
+        summary: "Translation provider API rate limit reached"
+        description: "Provider {{ $labels.provider }} has rate limited our requests"
+        runbook_url: "https://docs.yourdomain.com/runbooks/provider-rate-limit"

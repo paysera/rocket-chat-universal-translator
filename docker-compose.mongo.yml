@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # MongoDB for Rocket.Chat (without auth for dev)
+  mongodb:
+    image: mongo:5
+    container_name: translator-mongodb
+    restart: unless-stopped
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - translator_network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # Rocket.Chat
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    container_name: translator-rocketchat
+    restart: unless-stopped
+    environment:
+      MONGO_URL: mongodb://mongodb:27017/rocketchat?replicaSet=rs0
+      MONGO_OPLOG_URL: mongodb://mongodb:27017/local?replicaSet=rs0
+      ROOT_URL: http://192.168.110.199:3013
+      PORT: 3000
+      DEPLOY_METHOD: docker
+      ADMIN_USERNAME: admin
+      ADMIN_PASS: admin123
+      ADMIN_EMAIL: admin@example.com
+      OVERWRITE_SETTING_Show_Setup_Wizard: completed
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "3013:3000"
+    networks:
+      - translator_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  mongodb_data:
+
+networks:
+  translator_network:
+    external: true

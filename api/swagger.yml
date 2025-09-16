@@ -1,0 +1,585 @@
+openapi: 3.0.0
+info:
+  title: Universal Translator API
+  version: 1.0.0
+  description: AI-powered translation service for Rocket.Chat
+  contact:
+    name: API Support
+    email: api-support@paysera.tech
+
+servers:
+  - url: http://192.168.110.199:3012
+    description: Development server
+  - url: https://translate-api.paysera.tech
+    description: Production server
+  - url: https://translate-api-dev.paysera.tech
+    description: Development staging server
+
+paths:
+  /api/translate:
+    post:
+      summary: Translate text
+      description: Translate text from source language to target language using AI providers
+      tags:
+        - Translation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - text
+                - targetLang
+              properties:
+                text:
+                  type: string
+                  description: Text to translate
+                  example: "Hello world"
+                  maxLength: 10000
+                sourceLang:
+                  type: string
+                  description: Source language code (auto-detect if not provided)
+                  example: "en"
+                  minLength: 2
+                  maxLength: 10
+                targetLang:
+                  type: string
+                  description: Target language code
+                  example: "lt"
+                  minLength: 2
+                  maxLength: 10
+                provider:
+                  type: string
+                  enum: [openai, anthropic, deepl, google]
+                  description: Translation provider
+                  default: openai
+                context:
+                  type: array
+                  items:
+                    type: string
+                  description: Additional context messages for better translation
+                  maxItems: 10
+                quality:
+                  type: string
+                  enum: [fast, balanced, quality]
+                  description: Translation quality preference
+                  default: balanced
+                channelId:
+                  type: string
+                  description: Rocket.Chat channel ID for context
+                messageId:
+                  type: string
+                  description: Rocket.Chat message ID for tracking
+      responses:
+        200:
+          description: Translation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationResponse'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        429:
+          $ref: '#/components/responses/RateLimitExceeded'
+        500:
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/translate/bulk:
+    post:
+      summary: Bulk translation
+      description: Translate multiple texts in one request
+      tags:
+        - Translation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - texts
+                - targetLang
+              properties:
+                texts:
+                  type: array
+                  items:
+                    type: string
+                  description: Array of texts to translate
+                  maxItems: 100
+                  example: ["Hello", "Goodbye", "Thank you"]
+                sourceLang:
+                  type: string
+                  description: Source language code
+                  example: "en"
+                targetLang:
+                  type: string
+                  description: Target language code
+                  example: "lt"
+                provider:
+                  type: string
+                  enum: [openai, anthropic, deepl, google]
+                  description: Translation provider
+                  default: openai
+      responses:
+        200:
+          description: Bulk translation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkTranslationResponse'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        429:
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/detect-language:
+    post:
+      summary: Detect language
+      description: Automatically detect the language of provided text
+      tags:
+        - Language Detection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - text
+              properties:
+                text:
+                  type: string
+                  description: Text to analyze
+                  example: "Bonjour le monde"
+                  maxLength: 5000
+      responses:
+        200:
+          description: Language detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LanguageDetectionResponse'
+        400:
+          $ref: '#/components/responses/BadRequest'
+
+  /api/languages:
+    get:
+      summary: Get supported languages
+      description: Returns list of all supported languages with provider support information
+      tags:
+        - Languages
+      responses:
+        200:
+          description: List of supported languages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LanguagesResponse'
+
+  /api/preferences/{userId}:
+    get:
+      summary: Get user translation preferences
+      description: Retrieve translation preferences for a specific user
+      tags:
+        - User Preferences
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID from Rocket.Chat
+      responses:
+        200:
+          description: User preferences retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+        404:
+          description: User not found
+
+    put:
+      summary: Update user translation preferences
+      description: Update translation preferences for a specific user
+      tags:
+        - User Preferences
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User ID from Rocket.Chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreferences'
+      responses:
+        200:
+          description: Preferences updated successfully
+        400:
+          $ref: '#/components/responses/BadRequest'
+
+  /healthz:
+    get:
+      summary: Health check
+      description: Check if service is healthy and responding
+      tags:
+        - Monitoring
+      responses:
+        200:
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /readyz:
+    get:
+      summary: Readiness check
+      description: Check if service is ready to accept requests (includes dependency checks)
+      tags:
+        - Monitoring
+      responses:
+        200:
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: boolean
+                        description: PostgreSQL connection status
+                      redis:
+                        type: boolean
+                        description: Redis connection status
+                      rocketchat:
+                        type: boolean
+                        description: Rocket.Chat API connectivity
+                  timestamp:
+                    type: string
+                    format: date-time
+        503:
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "not ready"
+                  checks:
+                    type: object
+                  error:
+                    type: string
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Export metrics in Prometheus format for monitoring
+      tags:
+        - Monitoring
+      responses:
+        200:
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP translation_requests_total Number of translation requests
+                  # TYPE translation_requests_total counter
+                  translation_requests_total{provider="openai",status="success"} 1234
+
+components:
+  schemas:
+    TranslationResponse:
+      type: object
+      properties:
+        translatedText:
+          type: string
+          description: Translated text result
+          example: "Labas pasauli"
+        sourceLang:
+          type: string
+          description: Detected or provided source language
+          example: "en"
+        targetLang:
+          type: string
+          description: Target language
+          example: "lt"
+        confidence:
+          type: number
+          format: float
+          description: Translation confidence score (0-1)
+          example: 0.95
+          minimum: 0
+          maximum: 1
+        provider:
+          type: string
+          description: Provider used for translation
+          example: "openai"
+        model:
+          type: string
+          description: Specific model used by provider
+          example: "gpt-4"
+        cached:
+          type: boolean
+          description: Whether result was from cache
+          example: false
+        cost:
+          type: number
+          format: float
+          description: Cost in USD for this translation
+          example: 0.002
+        processingTime:
+          type: integer
+          description: Processing time in milliseconds
+          example: 1250
+
+    BulkTranslationResponse:
+      type: object
+      properties:
+        translations:
+          type: array
+          items:
+            type: object
+            properties:
+              original:
+                type: string
+                description: Original text
+              translated:
+                type: string
+                description: Translated text
+              success:
+                type: boolean
+                description: Whether translation succeeded
+              error:
+                type: string
+                description: Error message if translation failed
+              confidence:
+                type: number
+                format: float
+                description: Translation confidence
+        totalCost:
+          type: number
+          format: float
+          description: Total cost for all translations
+        processingTime:
+          type: integer
+          description: Total processing time in milliseconds
+
+    LanguageDetectionResponse:
+      type: object
+      properties:
+        language:
+          type: string
+          description: Detected language code
+          example: "fr"
+        confidence:
+          type: number
+          format: float
+          description: Detection confidence (0-1)
+          example: 0.98
+          minimum: 0
+          maximum: 1
+        alternatives:
+          type: array
+          items:
+            type: object
+            properties:
+              language:
+                type: string
+                description: Alternative language code
+              confidence:
+                type: number
+                format: float
+                description: Confidence for this alternative
+          description: Alternative language detections with lower confidence
+
+    LanguagesResponse:
+      type: object
+      properties:
+        languages:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                description: ISO 639-1 language code
+                example: "en"
+              name:
+                type: string
+                description: Language name in English
+                example: "English"
+              nativeName:
+                type: string
+                description: Language name in native language
+                example: "English"
+              supported:
+                type: array
+                items:
+                  type: string
+                description: List of providers supporting this language
+                example: ["openai", "deepl", "google"]
+
+    UserPreferences:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: Rocket.Chat user ID
+        preferredLanguage:
+          type: string
+          description: User's preferred reading language
+          example: "en"
+        autoTranslate:
+          type: boolean
+          description: Whether to automatically translate messages
+          default: true
+        preferredProvider:
+          type: string
+          enum: [openai, anthropic, deepl, google, auto]
+          description: Preferred translation provider
+          default: auto
+        showOriginal:
+          type: boolean
+          description: Whether to show original text on hover
+          default: true
+        blacklistedChannels:
+          type: array
+          items:
+            type: string
+          description: Channels where translation is disabled
+        qualityPreference:
+          type: string
+          enum: [fast, balanced, quality]
+          description: Translation quality preference
+          default: balanced
+
+  responses:
+    BadRequest:
+      description: Bad request - Invalid parameters
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Invalid language code"
+              code:
+                type: string
+                example: "INVALID_LANGUAGE"
+              details:
+                type: object
+                description: Additional error details
+
+    Unauthorized:
+      description: Unauthorized - Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Invalid API key"
+              code:
+                type: string
+                example: "UNAUTHORIZED"
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Rate limit exceeded"
+              retryAfter:
+                type: integer
+                description: Seconds until next request allowed
+                example: 60
+              limit:
+                type: integer
+                description: Requests per time window
+              remaining:
+                type: integer
+                description: Remaining requests in current window
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Internal server error"
+              requestId:
+                type: string
+                description: Request ID for debugging
+                example: "req_1234567890"
+              code:
+                type: string
+                example: "INTERNAL_ERROR"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for user authentication
+    InternalAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Secret
+      description: Internal service authentication
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+  - InternalAuth: []
+
+tags:
+  - name: Translation
+    description: Text translation operations with AI providers
+  - name: Language Detection
+    description: Automatic language detection capabilities
+  - name: Languages
+    description: Supported languages and provider information
+  - name: User Preferences
+    description: User-specific translation settings and preferences
+  - name: Monitoring
+    description: Health checks, metrics, and system monitoring

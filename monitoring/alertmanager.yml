@@ -1,0 +1,102 @@
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@paysera.tech'
+  smtp_auth_username: 'alerts@paysera.tech'
+  smtp_auth_password: 'CHANGE_THIS_SMTP_PASSWORD'
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'web.hook'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 5s
+      repeat_interval: 30m
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 4h
+
+receivers:
+  - name: 'web.hook'
+    webhook_configs:
+      - url: 'http://127.0.0.1:5001/'
+
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'devops@paysera.tech'
+        subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }} - Translator Service'
+        body: |
+          🚨 CRITICAL ALERT
+
+          Alert: {{ .GroupLabels.alertname }}
+          Severity: {{ .CommonLabels.severity }}
+          Service: {{ .CommonLabels.service }}
+
+          Description: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+
+          Details:
+          {{ range .Alerts }}
+          - Instance: {{ .Labels.instance }}
+          - Started: {{ .StartsAt }}
+          {{ end }}
+
+          Runbook: {{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}
+
+          Dashboard: https://grafana.translate-api.paysera.tech
+          Silence: https://alerts.translate-api.paysera.tech
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts'
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        color: 'danger'
+
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'dev-team@paysera.tech'
+        subject: '⚠️ WARNING: {{ .GroupLabels.alertname }} - Translator Service'
+        body: |
+          ⚠️ WARNING ALERT
+
+          Alert: {{ .GroupLabels.alertname }}
+          Severity: {{ .CommonLabels.severity }}
+          Service: {{ .CommonLabels.service }}
+
+          Description: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+
+          Details:
+          {{ range .Alerts }}
+          - Instance: {{ .Labels.instance }}
+          - Started: {{ .StartsAt }}
+          {{ end }}
+
+          Dashboard: https://grafana.translate-api.paysera.tech
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#monitoring'
+        title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        color: 'warning'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']

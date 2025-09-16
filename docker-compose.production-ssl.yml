@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: translator-traefik
+    restart: always
+    command:
+      - "--api.insecure=false"
+      - "--api.dashboard=${TRAEFIK_API_DASHBOARD:-false}"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-devops@paysera.tech}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+      # Security headers
+      - "--entrypoints.websecure.http.middlewares=secure-headers"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard (only if enabled)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - translator-network
+    labels:
+      # Security headers middleware
+      - "traefik.http.middlewares.secure-headers.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE,PATCH"
+      - "traefik.http.middlewares.secure-headers.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.secure-headers.headers.addvaryheader=true"
+      - "traefik.http.middlewares.secure-headers.headers.browserxssfilter=true"
+      - "traefik.http.middlewares.secure-headers.headers.contenttypenosniff=true"
+      - "traefik.http.middlewares.secure-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.secure-headers.headers.stsincludesubdomains=true"
+      - "traefik.http.middlewares.secure-headers.headers.stspreload=true"
+      - "traefik.http.middlewares.secure-headers.headers.stsseconds=31536000"
+      - "traefik.http.middlewares.secure-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+
+  # Update API service labels for SSL
+  api:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`translate-api.paysera.tech`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=3001"
+      - "traefik.http.middlewares.api-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.api-ratelimit.ratelimit.burst=50"
+      - "traefik.http.routers.api.middlewares=api-ratelimit,secure-headers"
+      # Health check
+      - "traefik.http.middlewares.api-healthcheck.healthcheck.path=/healthz"
+      - "traefik.http.middlewares.api-healthcheck.healthcheck.interval=30s"
+
+  # Update Rocket.Chat labels for SSL
+  rocketchat:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rocketchat.rule=Host(`translate-chat.paysera.tech`)"
+      - "traefik.http.routers.rocketchat.entrypoints=websecure"
+      - "traefik.http.routers.rocketchat.tls=true"
+      - "traefik.http.routers.rocketchat.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rocketchat.loadbalancer.server.port=3000"
+      - "traefik.http.routers.rocketchat.middlewares=secure-headers"
+      # WebSocket support for Rocket.Chat
+      - "traefik.http.routers.rocketchat.middlewares=rocketchat-headers"
+      - "traefik.http.middlewares.rocketchat-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.rocketchat-headers.headers.customrequestheaders.X-Forwarded-For="
+
+networks:
+  translator-network:
+    external: true

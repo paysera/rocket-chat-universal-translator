@@ -1,0 +1,382 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Translation Service Performance Dashboard",
+    "tags": ["performance", "translation", "rocketchat"],
+    "style": "dark",
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "10s",
+    "schemaVersion": 30,
+    "version": 1,
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (RPS)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"translation-api\"}[5m])",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Requests per Second",
+            "min": 0
+          }
+        ],
+        "xAxes": [
+          {
+            "mode": "time"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "thresholds": [
+          {
+            "value": 100,
+            "colorMode": "critical",
+            "op": "gt"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Response Time P95 (ms)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"translation-api\"}[5m]) * 1000)",
+            "legendFormat": "P95 Response Time",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"translation-api\"}[5m]) * 1000)",
+            "legendFormat": "P50 Response Time",
+            "refId": "B"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Milliseconds",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "thresholds": [
+          {
+            "value": 500,
+            "colorMode": "critical",
+            "op": "gt"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rate (%)",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"translation-api\", status=~\"5..\"}[5m]) / rate(http_requests_total{job=\"translation-api\"}[5m]) * 100",
+            "refId": "A"
+          }
+        ],
+        "valueName": "current",
+        "format": "percent",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 8
+        },
+        "thresholds": "5,10",
+        "colors": ["rgba(50, 172, 45, 0.97)", "rgba(237, 129, 40, 0.89)", "rgba(245, 54, 54, 0.9)"]
+      },
+      {
+        "id": 4,
+        "title": "Active Connections",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "nodejs_active_handles_total{job=\"translation-api\"}",
+            "refId": "A"
+          }
+        ],
+        "valueName": "current",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Memory Usage (MB)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes{job=\"translation-api\"} / 1024 / 1024",
+            "legendFormat": "RSS Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "nodejs_heap_size_used_bytes{job=\"translation-api\"} / 1024 / 1024",
+            "legendFormat": "Heap Used",
+            "refId": "B"
+          },
+          {
+            "expr": "nodejs_heap_size_total_bytes{job=\"translation-api\"} / 1024 / 1024",
+            "legendFormat": "Heap Total",
+            "refId": "C"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Megabytes",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "CPU Usage (%)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(process_cpu_user_seconds_total{job=\"translation-api\"}[5m]) * 100",
+            "legendFormat": "User CPU",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(process_cpu_system_seconds_total{job=\"translation-api\"}[5m]) * 100",
+            "legendFormat": "System CPU",
+            "refId": "B"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 7,
+        "title": "Database Connections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "pg_stat_database_numbackends{datname=\"translator\"}",
+            "legendFormat": "PostgreSQL Connections",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Connections",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 8,
+        "title": "Cache Hit Rate (%)",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100",
+            "refId": "A"
+          }
+        ],
+        "valueName": "current",
+        "format": "percent",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 24
+        },
+        "thresholds": "70,85",
+        "colors": ["rgba(245, 54, 54, 0.9)", "rgba(237, 129, 40, 0.89)", "rgba(50, 172, 45, 0.97)"]
+      },
+      {
+        "id": 9,
+        "title": "Translation Queue Size",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "translation_queue_size{job=\"translation-api\"}",
+            "refId": "A"
+          }
+        ],
+        "valueName": "current",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 24
+        }
+      },
+      {
+        "id": 10,
+        "title": "HTTP Status Codes",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (status) (rate(http_requests_total{job=\"translation-api\"}[5m]))",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 12,
+          "y": 24
+        }
+      },
+      {
+        "id": 11,
+        "title": "Top Translation Languages",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (source_lang, target_lang) (rate(translation_requests_total[5m])))",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "id": 12,
+        "title": "Rocket.Chat Message Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(rocketchat_messages_total[5m])",
+            "legendFormat": "Messages per Second",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Messages/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 32
+        }
+      },
+      {
+        "id": 13,
+        "title": "API Endpoint Performance",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(http_request_duration_seconds_bucket{job=\"translation-api\"}[5m])) by (le, endpoint)",
+            "refId": "A",
+            "format": "heatmap"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(up{job=\"translation-api\"}, instance)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*"
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "options": [
+            {"text": "1m", "value": "1m"},
+            {"text": "5m", "value": "5m"},
+            {"text": "10m", "value": "10m"},
+            {"text": "30m", "value": "30m"},
+            {"text": "1h", "value": "1h"}
+          ],
+          "current": {"text": "5m", "value": "5m"}
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "increase(deployment_timestamp[1h])",
+          "step": 60,
+          "iconColor": "rgba(255, 96, 96, 1)",
+          "enable": true
+        }
+      ]
+    }
+  },
+  "overwrite": true,
+  "inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "type": "datasource",
+      "pluginId": "prometheus"
+    }
+  ],
+  "folderId": null,
+  "folderUid": null
+}

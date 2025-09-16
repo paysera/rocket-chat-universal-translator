@@ -1,0 +1,76 @@
+{
+  "name": "universal-translator-pro",
+  "version": "1.0.0",
+  "description": "Universal Translator Pro for Rocket.Chat - Seamless multilingual communication",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "npm run dev:plugin & npm run dev:api",
+    "dev:plugin": "cd plugin && npm run dev",
+    "dev:api": "cd api && npm run dev",
+    "build": "npm run build:plugin && npm run build:api",
+    "build:plugin": "cd plugin && npm run build",
+    "build:api": "cd api && npm run build",
+    "test": "npm run test:plugin && npm run test:api",
+    "test:plugin": "cd plugin && npm test",
+    "test:api": "cd api && npm test",
+    "test:integration": "./scripts/ci-cd/run-tests.sh integration",
+    "test:e2e": "./scripts/ci-cd/run-tests.sh e2e",
+    "test:performance": "./scripts/ci-cd/run-tests.sh performance",
+    "test:security": "./scripts/ci-cd/run-tests.sh security",
+    "test:smoke": "./scripts/ci-cd/run-tests.sh smoke",
+    "test:ci": "./scripts/ci-cd/run-tests.sh ci",
+    "test:full": "./scripts/ci-cd/run-tests.sh full",
+    "lint": "npm run lint:plugin && npm run lint:api",
+    "lint:plugin": "cd plugin && npm run lint",
+    "lint:api": "cd api && npm run lint",
+    "lint:fix": "npm run lint:plugin -- --fix && npm run lint:api -- --fix",
+    "typecheck": "npm run typecheck:plugin && npm run typecheck:api",
+    "typecheck:plugin": "cd plugin && npm run typecheck",
+    "typecheck:api": "cd api && npm run typecheck",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "install:all": "npm install && cd plugin && npm install && cd ../api && npm install",
+    "clean": "rm -rf node_modules plugin/node_modules api/node_modules shared/node_modules",
+    "clean:dist": "rm -rf plugin/dist api/dist shared/dist",
+    "setup:ci": "./scripts/setup-pre-commit.sh",
+    "docker:test": "docker-compose -f docker-compose.test.yml up --build",
+    "docker:test:down": "docker-compose -f docker-compose.test.yml down",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up --build",
+    "docker:prod": "docker-compose -f docker-compose.production.yml up --build"
+  },
+  "workspaces": [
+    "plugin",
+    "api",
+    "shared"
+  ],
+  "keywords": [
+    "rocket.chat",
+    "translation",
+    "multilingual",
+    "ai",
+    "plugin"
+  ],
+  "author": "Kostas Noreika",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.12.7",
+    "npm-force-resolutions": "^0.0.10",
+    "typescript": "^5.4.5"
+  },
+  "overrides": {
+    "lodash.template": ">=4.5.0",
+    "tmp": ">=0.2.4",
+    "esbuild": ">=0.24.3",
+    "axios": ">=1.11.1",
+    "follow-redirects": ">=1.15.6",
+    "systeminformation": ">=5.23.7",
+    "@oclif/plugin-help": ">=4.0.0"
+  },
+  "resolutions": {
+    "lodash.template": "4.5.0"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}
