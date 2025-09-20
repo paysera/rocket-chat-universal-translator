@@ -9,6 +9,9 @@ import { createServer } from 'http';
 import healthRoutes from './routes/health';
 import translateRoutes from './routes/translate';
 import preferencesRoutes from './routes/preferences';
+import authRoutes from './routes/auth';
+import billingRoutes from './routes/billing';
+import adminRoutes from './routes/admin';
 
 // Database and Cache
 import { pool, runMigrations, closeDatabase } from './config/database';
@@ -36,15 +39,15 @@ export class Server {
             // Test database connection
             await pool.query('SELECT 1');
             log.info('Database connected successfully');
-            
+
             // Run migrations
             await runMigrations();
             log.info('Database migrations completed');
-            
+
             // Test Redis connection
             await redis.ping();
             log.info('Redis connected successfully');
-            
+
         } catch (error) {
             log.error('Failed to initialize services', error);
             throw error;
@@ -58,17 +61,17 @@ export class Server {
             origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
             credentials: true,
         }));
-        
+
         // Compression
         this.app.use(compression());
-        
+
         // Body parsing
         this.app.use(express.json({ limit: '10mb' }));
         this.app.use(express.urlencoded({ extended: true }));
-        
+
         // Request timeout
         this.app.use(timeoutHandler(30000));
-        
+
         // Logging
         this.app.use(requestLogger);
 
@@ -77,10 +80,10 @@ export class Server {
 
         // Rate limiting
         this.app.use(generalRateLimiter);
-        
+
         // Add request ID
         this.app.use((req: Request, _res: Response, next: NextFunction) => {
-            req.headers['x-request-id'] = req.headers['x-request-id'] || 
+            req.headers['x-request-id'] = req.headers['x-request-id'] ||
                 `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             next();
         });
@@ -95,21 +98,25 @@ export class Server {
 
         // Health check routes (no auth required)
         this.app.use(apiV1, healthRoutes);
-        
+
+        // Authentication routes (limited auth required)
+        this.app.use(`${apiV1}/auth`, authRoutes);
+
         // Translation routes (auth required)
         this.app.use(apiV1, translateRoutes);
-        
+
         // User preferences routes (auth required)
         this.app.use(apiV1, preferencesRoutes);
-        
-        // TODO: Add these routes when implemented
-        // this.app.use(`${apiV1}/auth`, authRoutes);
-        // this.app.use(`${apiV1}/billing`, billingRoutes);
-        // this.app.use(`${apiV1}/admin`, adminRoutes);
-        
+
+        // Billing routes (auth required)
+        this.app.use(`${apiV1}/billing`, billingRoutes);
+
+        // Admin routes (admin auth required)
+        this.app.use(`${apiV1}/admin`, adminRoutes);
+
         // 404 handler
         this.app.use(notFoundHandler);
-        
+
         // Error handler (must be last)
         this.app.use(errorHandler);
     }
@@ -126,23 +133,25 @@ export class Server {
                 log.info(`🚀 Universal Translator API running on port ${this.port}`);
                 log.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
                 log.info(`Health check: http://localhost:${this.port}/api/v1/health`);
+                log.info(`Authentication: http://localhost:${this.port}/api/v1/auth`);
+                log.info(`API Documentation: http://localhost:${this.port}/api/v1`);
             });
 
             // Graceful shutdown handlers
             const gracefulShutdown = async (signal: string) => {
                 log.info(`${signal} received, starting graceful shutdown`);
-                
+
                 server.close(() => {
                     log.info('HTTP server closed');
                 });
-                
+
                 try {
                     await closeDatabase();
                     log.info('Database connections closed');
-                    
+
                     await closeRedis();
                     log.info('Redis connections closed');
-                    
+
                     process.exit(0);
                 } catch (error) {
                     log.error('Error during shutdown:', error);
