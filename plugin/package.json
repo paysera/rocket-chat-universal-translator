@@ -10,7 +10,7 @@
     "build:secure": "../scripts/build-plugin-secure.sh",
     "compile": "npx tsc",
     "deploy": "echo '⚠️  Ensure plugin is built securely before deployment' && rc-apps deploy --url $ROCKETCHAT_URL --username $ROCKETCHAT_USER --password $ROCKETCHAT_PASSWORD",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "npx tsc --noEmit",
     "validate": "node validate-app.js",

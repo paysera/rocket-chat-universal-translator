@@ -82,4 +82,8 @@ Desktop.ini
 # Package manager locks (keep one)
 package-lock.json
 # yarn.lock
-# pnpm-lock.yaml.claude.json
+# pnpm-lock.yaml
+
+# Claude configuration files
+.claude.json
+.claude/

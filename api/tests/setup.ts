@@ -25,15 +25,6 @@ jest.mock('../src/providers/ClaudeProvider', () => ({
   }
 }));
 
-jest.mock('../src/providers/DeepLProvider', () => ({
-  DeepLProvider: {
-    translate: jest.fn().mockResolvedValue({
-      translatedText: 'Mocked DeepL translation',
-      confidence: 0.98,
-      detectedSourceLang: 'en'
-    })
-  }
-}));
 
 // Set test timeout
 jest.setTimeout(30000);
