@@ -13,7 +13,18 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:integration": "jest --testPathPattern=integration",
-    "test:unit": "jest --testPathPattern=unit"
+    "test:unit": "jest --testPathPattern=unit",
+    "perf:enhanced": "cd ../performance && k6 run --out html=results/enhanced-api-load-test.html enhanced-api-load-test.js",
+    "perf:concurrent": "cd ../performance && k6 run --out html=results/concurrent-users-test.html concurrent-users-test.js",
+    "perf:cache": "cd ../performance && k6 run --out html=results/cache-effectiveness-test.html cache-effectiveness-test.js",
+    "perf:resources": "cd ../performance && k6 run --out html=results/resource-monitoring-test.html resource-monitoring-test.js",
+    "perf:baseline": "cd ../performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=10 k6 run enhanced-api-load-test.js",
+    "perf:load": "cd ../performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=100 k6 run enhanced-api-load-test.js",
+    "perf:stress": "cd ../performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=500 k6 run enhanced-api-load-test.js",
+    "perf:spike": "cd ../performance && BASE_URL=http://192.168.110.199:3012 CONCURRENT_USERS=1000 k6 run concurrent-users-test.js",
+    "perf:all": "npm run perf:enhanced && npm run perf:concurrent && npm run perf:cache && npm run perf:resources",
+    "perf:quick": "cd ../performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=25 TEST_DURATION=2m k6 run enhanced-api-load-test.js",
+    "perf:ci": "cd ../performance && ./run-performance-ci.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.0",

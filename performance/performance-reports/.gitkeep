@@ -1,0 +1,24 @@
+# Performance Reports Archive
+
+This directory contains performance test reports and analysis:
+- Performance summaries
+- Trend analysis
+- Benchmark comparisons
+- Optimization recommendations
+
+## Directory Structure
+```
+performance-reports/
+├── YYYYMMDD_HHMMSS/           # Timestamped test runs
+│   ├── performance-summary.md  # Test summary
+│   ├── performance-benchmarks.json # Benchmark data
+│   └── *.html                 # Individual test reports
+├── baselines/                 # Performance baselines
+└── trends/                    # Historical trend data
+```
+
+## Report Types
+- **Summary Reports:** High-level performance overview
+- **Detailed Analysis:** In-depth metrics and recommendations
+- **Comparison Reports:** Before/after performance comparisons
+- **Trend Reports:** Historical performance analysis

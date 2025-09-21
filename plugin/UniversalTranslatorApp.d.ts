@@ -21,5 +21,6 @@ export declare class UniversalTranslatorApp extends App implements IPostMessageS
     private getPreferencesEndpoint;
     private setPreferencesEndpoint;
     private statsEndpoint;
+    private calculateLanguageUsage;
 }
 //# sourceMappingURL=UniversalTranslatorApp.d.ts.map

@@ -1,0 +1,177 @@
+{
+  "environments": {
+    "development": {
+      "baseUrl": "http://192.168.110.199:3012",
+      "targetUsers": 25,
+      "testDuration": "2m",
+      "thresholds": {
+        "responseTimeP95": 1000,
+        "responseTimeP99": 2000,
+        "errorRate": 0.15,
+        "cacheHitRate": 0.25
+      }
+    },
+    "staging": {
+      "baseUrl": "https://translate-api-dev.paysera.tech",
+      "targetUsers": 50,
+      "testDuration": "5m",
+      "thresholds": {
+        "responseTimeP95": 800,
+        "responseTimeP99": 1500,
+        "errorRate": 0.1,
+        "cacheHitRate": 0.4
+      }
+    },
+    "production": {
+      "baseUrl": "https://translate-api.paysera.tech",
+      "targetUsers": 100,
+      "testDuration": "10m",
+      "thresholds": {
+        "responseTimeP95": 500,
+        "responseTimeP99": 1000,
+        "errorRate": 0.05,
+        "cacheHitRate": 0.6
+      }
+    },
+    "ci": {
+      "baseUrl": "http://localhost:3012",
+      "targetUsers": 10,
+      "testDuration": "1m",
+      "thresholds": {
+        "responseTimeP95": 2000,
+        "responseTimeP99": 5000,
+        "errorRate": 0.2,
+        "cacheHitRate": 0.1
+      }
+    }
+  },
+  "testSuites": {
+    "quick": {
+      "description": "Quick performance validation",
+      "tests": ["enhanced-api-load-test"],
+      "duration": "2m",
+      "targetUsers": 25
+    },
+    "standard": {
+      "description": "Standard performance testing",
+      "tests": ["enhanced-api-load-test", "concurrent-users-test", "cache-effectiveness-test"],
+      "duration": "5m",
+      "targetUsers": 50
+    },
+    "comprehensive": {
+      "description": "Full performance testing suite",
+      "tests": ["enhanced-api-load-test", "concurrent-users-test", "cache-effectiveness-test", "resource-monitoring-test"],
+      "duration": "10m",
+      "targetUsers": 100
+    },
+    "stress": {
+      "description": "Stress testing for capacity planning",
+      "tests": ["concurrent-users-test", "resource-monitoring-test"],
+      "duration": "5m",
+      "targetUsers": 500
+    },
+    "cache": {
+      "description": "Cache performance validation",
+      "tests": ["cache-effectiveness-test"],
+      "duration": "3m",
+      "targetUsers": 50
+    }
+  },
+  "providers": {
+    "openai": {
+      "weight": 40,
+      "expectedResponseTime": 800,
+      "supportedLanguages": ["en", "lt", "de", "fr", "es", "it", "pl", "lv", "et"]
+    },
+    "anthropic": {
+      "weight": 30,
+      "expectedResponseTime": 1000,
+      "supportedLanguages": ["en", "lt", "de", "fr", "es", "it"]
+    },
+    "deepl": {
+      "weight": 20,
+      "expectedResponseTime": 600,
+      "supportedLanguages": ["en", "lt", "de", "fr", "es", "it", "pl"]
+    },
+    "google": {
+      "weight": 10,
+      "expectedResponseTime": 500,
+      "supportedLanguages": ["en", "lt", "de", "fr", "es", "it", "pl", "lv", "et", "ru"]
+    }
+  },
+  "testData": {
+    "textSizes": {
+      "short": {
+        "maxLength": 50,
+        "expectedResponseTime": 500,
+        "examples": [
+          "Hello world",
+          "Thank you",
+          "Good morning",
+          "How are you?",
+          "See you later"
+        ]
+      },
+      "medium": {
+        "maxLength": 200,
+        "expectedResponseTime": 1000,
+        "examples": [
+          "This is a medium-length message for testing.",
+          "Performance testing helps optimize applications.",
+          "The translation service should handle various text sizes."
+        ]
+      },
+      "long": {
+        "maxLength": 1000,
+        "expectedResponseTime": 2000,
+        "examples": [
+          "This is a longer text that simulates real-world usage scenarios where users might translate entire paragraphs or multiple sentences at once."
+        ]
+      }
+    },
+    "languagePairs": [
+      { "source": "en", "target": "lt", "frequency": 30 },
+      { "source": "en", "target": "de", "frequency": 20 },
+      { "source": "en", "target": "fr", "frequency": 15 },
+      { "source": "en", "target": "es", "frequency": 15 },
+      { "source": "lt", "target": "en", "frequency": 10 },
+      { "source": "de", "target": "en", "frequency": 5 },
+      { "source": "fr", "target": "en", "frequency": 3 },
+      { "source": "es", "target": "en", "frequency": 2 }
+    ]
+  },
+  "monitoring": {
+    "metricsEndpoint": "/metrics",
+    "healthEndpoint": "/healthz",
+    "statusEndpoint": "/api/status",
+    "cacheStatsEndpoint": "/api/cache/stats",
+    "intervals": {
+      "resourceMonitoring": 10,
+      "healthCheck": 30,
+      "metricsCollection": 5
+    }
+  },
+  "reporting": {
+    "outputFormats": ["html", "json", "csv"],
+    "includeGraphs": true,
+    "generateSummary": true,
+    "archiveResults": true,
+    "retentionDays": 30,
+    "alerting": {
+      "enabled": true,
+      "thresholds": {
+        "responseTimeDegradation": 0.2,
+        "errorRateIncrease": 0.05,
+        "cacheHitRateDecrease": 0.1
+      }
+    }
+  },
+  "cicd": {
+    "timeoutMinutes": 15,
+    "failOnThresholdBreach": true,
+    "generateArtifacts": true,
+    "slackWebhook": null,
+    "emailNotifications": [],
+    "parallelExecution": false
+  }
+}

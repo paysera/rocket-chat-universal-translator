@@ -13,7 +13,7 @@ interface SentryConfig {
   profilesSampleRate: number;
   enableUserContext: boolean;
   enableRequestData: boolean;
-  beforeSend?: (event: Sentry.Event, hint: Sentry.EventHint) => Sentry.Event | null;
+  beforeSend?: (event: Sentry.ErrorEvent, hint: Sentry.EventHint) => Sentry.ErrorEvent | null;
 }
 
 // Default configuration
@@ -79,7 +79,6 @@ class SentryService {
           ip: true,
           query_string: this.config.enableRequestData,
           url: true,
-          user: this.config.enableUserContext,
         },
       }),
     ];
@@ -286,7 +285,7 @@ class SentryService {
   /**
    * Default beforeSend filter to remove sensitive data
    */
-  private defaultBeforeSend(event: Sentry.Event, hint: Sentry.EventHint): Sentry.Event | null {
+  private defaultBeforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint): Sentry.ErrorEvent | null {
     // Filter out client-side errors that might be spam
     if (event.exception) {
       const error = hint.originalException;

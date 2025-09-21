@@ -183,7 +183,7 @@ export function errorHandler(
     statusCode,
     isOperational,
     severity,
-    userContext,
+    userContext: userContext || undefined,
   });
 
   // Send error response
@@ -208,7 +208,7 @@ export function errorHandler(
   }
 
   // Add request ID if available
-  if (req.headers['x-request-id']) {
+  if (req.headers && req.headers['x-request-id']) {
     errorResponse.error.requestId = req.headers['x-request-id'];
   }
 
@@ -225,7 +225,7 @@ export function notFoundHandler(req: Request, res: Response) {
     'info',
     {
       request: req,
-      user: userContext,
+      user: userContext || undefined,
       tags: {
         error_type: 'not_found',
         method: req.method,
@@ -253,7 +253,7 @@ function logError(
     statusCode: number;
     isOperational: boolean;
     severity: 'error' | 'warning' | 'info' | 'fatal';
-    userContext?: { id: string; email?: string; username?: string } | null;
+    userContext?: { id: string; email?: string; username?: string };
   }
 ) {
   const errorInfo = {
@@ -300,9 +300,9 @@ function logError(
         endpoint: req.route?.path || req.path,
       },
       extra: {
-        requestId: req.headers['x-request-id'],
-        userAgent: req.get('User-Agent'),
-        referer: req.get('Referer'),
+        requestId: req.headers && req.headers['x-request-id'],
+        userAgent: req.get && req.get('User-Agent'),
+        referer: req.get && req.get('Referer'),
         errorDetails: err instanceof AppError ? err.details : undefined,
       },
     });
@@ -318,7 +318,7 @@ function logError(
         method: req.method,
         statusCode: context.statusCode,
         timestamp: errorInfo.timestamp,
-        requestId: req.headers['x-request-id'],
+        requestId: req.headers && req.headers['x-request-id'],
         userId: context.userContext?.id,
       });
     } else if (context.statusCode >= 400) {
@@ -406,14 +406,16 @@ function extractUserContext(req: Request): { id: string; email?: string; usernam
     };
   }
 
-  // Try to extract from headers
-  const userId = req.headers['x-user-id'] as string;
-  if (userId) {
-    return {
-      id: userId,
-      email: req.headers['x-user-email'] as string,
-      username: req.headers['x-username'] as string,
-    };
+  // Try to extract from headers (safely check if headers exist)
+  if (req.headers) {
+    const userId = req.headers['x-user-id'] as string;
+    if (userId) {
+      return {
+        id: userId,
+        email: req.headers['x-user-email'] as string,
+        username: req.headers['x-username'] as string,
+      };
+    }
   }
 
   return null;
@@ -429,7 +431,7 @@ export function timeoutHandler(timeout: number = 30000) {
       const userContext = extractUserContext(req);
       sentryService.captureException(error, {
         request: req,
-        user: userContext,
+        user: userContext || undefined,
         level: 'warning',
         tags: {
           error_type: 'timeout',

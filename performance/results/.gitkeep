@@ -1,0 +1,18 @@
+# Performance Test Results
+
+This directory contains performance test results including:
+- HTML reports for visual analysis
+- JSON data for programmatic analysis
+- CSV exports for spreadsheet analysis
+
+Results are organized by timestamp and test type.
+
+## File Naming Convention
+- `{test-name}-{timestamp}.html` - Interactive HTML reports
+- `{test-name}-{timestamp}.json` - Raw metrics data
+- `{test-name}-{timestamp}.csv` - CSV exports (if configured)
+
+## Retention Policy
+- Results are kept for 30 days by default
+- Critical performance test results should be archived
+- CI/CD results are automatically uploaded as artifacts

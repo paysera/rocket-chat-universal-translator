@@ -84,29 +84,12 @@ describe('Error Handler Middleware', () => {
       });
     });
 
-    it('should report operational errors to Sentry with warning level', () => {
+    it('should not report 4xx operational errors to Sentry', () => {
       const error = new AppError('Client error', 400, true);
 
       errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(sentryService.captureException).toHaveBeenCalledWith(error, {
-        request: mockRequest,
-        user: null,
-        level: 'warning',
-        tags: {
-          error_type: 'AppError',
-          status_code: '400',
-          method: 'GET',
-          operational: 'true',
-          endpoint: '/test',
-        },
-        extra: {
-          requestId: undefined,
-          userAgent: undefined,
-          referer: undefined,
-          errorDetails: undefined,
-        },
-      });
+      expect(sentryService.captureException).not.toHaveBeenCalled();
     });
 
     it('should report server errors to Sentry with error level', () => {
@@ -116,7 +99,7 @@ describe('Error Handler Middleware', () => {
 
       expect(sentryService.captureException).toHaveBeenCalledWith(error, {
         request: mockRequest,
-        user: null,
+        user: undefined,
         level: 'error',
         tags: {
           error_type: 'AppError',
@@ -470,6 +453,7 @@ describe('Not Found Handler', () => {
     mockRequest = {
       method: 'GET',
       path: '/nonexistent',
+      headers: {}, // Add headers to prevent undefined error
     };
 
     mockResponse = {
@@ -524,6 +508,7 @@ describe('Timeout Handler', () => {
     mockRequest = {
       method: 'GET',
       url: '/slow-endpoint',
+      headers: {}, // Add headers to prevent undefined error
     };
 
     mockResponse = {

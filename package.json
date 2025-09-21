@@ -5,10 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "npm run dev:plugin & npm run dev:api",
-    "dev:plugin": "cd plugin && npm run dev",
+    "dev:plugin": "echo '⚠️  Plugin dev mode requires secure environment. Build with: npm run build:plugin:secure'",
     "dev:api": "cd api && npm run dev",
-    "build": "npm run build:plugin && npm run build:api",
-    "build:plugin": "cd plugin && npm run build",
+    "build": "npm run build:plugin:secure && npm run build:api",
+    "build:plugin": "./scripts/build-plugin-secure.sh",
+    "build:plugin:secure": "./scripts/build-plugin-secure.sh",
     "build:api": "cd api && npm run build",
     "test": "npm run test:plugin && npm run test:api",
     "test:plugin": "cd plugin && npm test",
@@ -20,6 +21,16 @@
     "test:smoke": "./scripts/ci-cd/run-tests.sh smoke",
     "test:ci": "./scripts/ci-cd/run-tests.sh ci",
     "test:full": "./scripts/ci-cd/run-tests.sh full",
+    "perf:quick": "cd performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=25 TEST_DURATION=2m k6 run enhanced-api-load-test.js",
+    "perf:standard": "cd performance && ./run-performance-ci.sh",
+    "perf:ci": "cd performance && CI_MODE=true ./run-performance-ci.sh",
+    "perf:stress": "cd performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=500 k6 run enhanced-api-load-test.js",
+    "perf:cache": "cd performance && BASE_URL=http://192.168.110.199:3012 k6 run cache-effectiveness-test.js",
+    "perf:concurrent": "cd performance && BASE_URL=http://192.168.110.199:3012 CONCURRENT_USERS=1000 k6 run concurrent-users-test.js",
+    "perf:resources": "cd performance && BASE_URL=http://192.168.110.199:3012 k6 run resource-monitoring-test.js",
+    "perf:all": "cd performance && ./run-performance-ci.sh",
+    "perf:baseline": "cd performance && BASE_URL=http://192.168.110.199:3012 TARGET_USERS=10 k6 run enhanced-api-load-test.js",
+    "perf:report": "cd performance && echo 'Performance reports available in ./performance-reports/'",
     "lint": "npm run lint:plugin && npm run lint:api",
     "lint:plugin": "cd plugin && npm run lint",
     "lint:api": "cd api && npm run lint",
@@ -30,13 +41,14 @@
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md}\"",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
     "install:all": "npm install && cd plugin && npm install && cd ../api && npm install",
-    "clean": "rm -rf node_modules plugin/node_modules api/node_modules shared/node_modules",
+    "clean": "rm -rf node_modules plugin/node_modules api/node_modules",
     "clean:dist": "rm -rf plugin/dist api/dist shared/dist",
     "setup:ci": "./scripts/setup-pre-commit.sh",
     "docker:test": "docker-compose -f docker-compose.test.yml up --build",
     "docker:test:down": "docker-compose -f docker-compose.test.yml down",
     "docker:dev": "docker-compose -f docker-compose.dev.yml up --build",
-    "docker:prod": "docker-compose -f docker-compose.production.yml up --build"
+    "docker:prod": "docker-compose -f docker-compose.production.yml up --build",
+    "security:audit": "npm audit --audit-level=high && cd api && npm audit --audit-level=high && cd ../plugin && npm audit --audit-level=high"
   },
   "workspaces": [
     "plugin",
@@ -48,7 +60,8 @@
     "translation",
     "multilingual",
     "ai",
-    "plugin"
+    "plugin",
+    "performance"
   ],
   "author": "Kostas Noreika",
   "license": "MIT",
@@ -72,5 +85,11 @@
   },
   "dependencies": {
     "playwright": "^1.55.0"
+  },
+  "security": {
+    "note": "Docker isolation implemented for @rocket.chat/apps-cli to eliminate lodash.template vulnerabilities",
+    "buildProcess": "Plugin builds use isolated Docker container with vulnerable dependencies",
+    "mitigation": "Production environment has zero exposure to lodash.template vulnerabilities",
+    "lastAudit": "2025-09-20"
   }
 }

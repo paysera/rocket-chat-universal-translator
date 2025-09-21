@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { authenticateToken, AuthRequest, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -46,7 +46,7 @@ interface UsageData {
 // Get subscription plans
 router.get(
   '/plans',
-  asyncHandler(async (req, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const plans: SubscriptionTier[] = [
       {
         tier: 'trial',

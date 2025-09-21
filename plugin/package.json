@@ -4,11 +4,12 @@
   "description": "Rocket.Chat plugin for Universal Translator Pro",
   "main": "UniversalTranslatorApp.js",
   "scripts": {
-    "dev": "rc-apps watch",
-    "build": "echo '📦 Using pre-built package...' && cp dist/universal-translator-pro.zip ./",
-    "build-new": "rc-apps package",
+    "dev": "echo '⚠️  Dev mode requires secure build environment. Use: npm run build:secure' && exit 1",
+    "build": "../scripts/build-plugin-secure.sh",
+    "build-new": "echo '⚠️  Direct rc-apps usage blocked for security. Use: npm run build' && exit 1",
+    "build:secure": "../scripts/build-plugin-secure.sh",
     "compile": "npx tsc",
-    "deploy": "rc-apps deploy --url $ROCKETCHAT_URL --username $ROCKETCHAT_USER --password $ROCKETCHAT_PASSWORD",
+    "deploy": "echo '⚠️  Ensure plugin is built securely before deployment' && rc-apps deploy --url $ROCKETCHAT_URL --username $ROCKETCHAT_USER --password $ROCKETCHAT_PASSWORD",
     "test": "jest",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "npx tsc --noEmit",
@@ -30,5 +31,12 @@
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
     "typescript": "^5.4.5"
+  },
+  "security": {
+    "note": "@rocket.chat/apps-cli removed from devDependencies to eliminate lodash.template vulnerabilities",
+    "buildProcess": "Uses Docker isolation in build.Dockerfile for secure packaging",
+    "vulnerabilitiesMitigated": [
+      "CVE lodash.template command injection (3 HIGH severity)"
+    ]
   }
 }

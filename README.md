@@ -22,7 +22,7 @@ Universal Translator Pro integrates with Rocket.Chat and automatically translate
 - OpenAI GPT-4
 - Anthropic Claude
 - Google Translate
-- DeepL
+- Custom Context-Aware Translation API
 
 ### Key Features
 
@@ -125,7 +125,6 @@ docker-compose -f docker-compose.dev.yml logs -f
 | `REDIS_PORT` | Redis port | Yes | 6379 |
 | `OPENAI_API_KEY` | OpenAI API key | No | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | No | - |
-| `DEEPL_API_KEY` | DeepL API key | No | - |
 | `GOOGLE_TRANSLATE_API_KEY` | Google Translate key | No | - |
 
 ## 💻 Development

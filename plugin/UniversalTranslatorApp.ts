@@ -103,7 +103,6 @@ export class UniversalTranslatorApp extends App implements IPostMessageSent {
                     { key: 'auto', i18nLabel: 'Auto_Select' },
                     { key: 'claude', i18nLabel: 'Claude_AI' },
                     { key: 'openai', i18nLabel: 'OpenAI_GPT' },
-                    { key: 'deepl', i18nLabel: 'DeepL_AI' },
                 ],
                 i18nLabel: 'Translation_Provider',
                 i18nDescription: 'Translation_Provider_Description',
